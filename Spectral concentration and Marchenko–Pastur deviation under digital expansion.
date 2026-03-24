@@ -1,0 +1,160 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from pathlib import Path
+
+# =========================================================
+# 1. Load the uploaded Excel dataset
+# =========================================================
+file_path = Path("/content/Data final 1.xlsx")
+df = pd.read_excel(file_path)
+
+# Keep only the columns needed for RMT + digitalization analysis
+cols_needed = ["code", "year", "ROA", "DT_text"]
+df = df[cols_needed].copy()
+
+# Force numeric conversion where needed
+df["year"] = pd.to_numeric(df["year"], errors="coerce")
+df["ROA"] = pd.to_numeric(df["ROA"], errors="coerce")
+df["DT_text"] = pd.to_numeric(df["DT_text"], errors="coerce")
+
+# Drop rows with missing key identifiers
+df = df.dropna(subset=["code", "year"])
+
+# =========================================================
+# 2. Build the bank-year panel matrix
+# =========================================================
+# ROA matrix: rows = years, columns = banks
+roa_pivot = df.pivot(index="year", columns="code", values="ROA").sort_index()
+
+# System-level digitalization index by year
+delta_year = df.groupby("year")["DT_text"].mean().sort_index()
+
+# =========================================================
+# 3. Rolling-window RMT estimation
+# =========================================================
+window = 5   # you can also test 4 or 6 for robustness
+years = roa_pivot.index.tolist()
+
+results = []
+
+for i in range(window - 1, len(years)):
+    rolling_years = years[i - window + 1 : i + 1]
+
+    # Windowed bank-by-time matrix
+    X = roa_pivot.loc[rolling_years].copy()
+
+    # Fill missing values bank-wise within the window
+    X = X.apply(lambda col: col.fillna(col.mean()), axis=0)
+
+    # If a bank is entirely missing within a window, fill with grand mean
+    grand_mean = X.stack().mean()
+    X = X.fillna(grand_mean)
+
+    # Standardize each bank series within the window
+    X = (X - X.mean()) / X.std(ddof=1)
+
+    # Replace any remaining degenerate columns
+    X = X.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    # Correlation matrix across banks
+    corr = np.corrcoef(X.values, rowvar=False)
+
+    # Eigenvalues
+    eigvals = np.linalg.eigvalsh(corr)
+    eigvals = np.sort(eigvals)[::-1]
+
+    lambda_1 = eigvals[0]
+    trace_corr = np.trace(corr)
+    fragility = lambda_1 / trace_corr
+
+    # MP edge after standardization (sigma^2 = 1)
+    n_banks = X.shape[1]
+    T_window = X.shape[0]
+    q = n_banks / T_window
+    lambda_plus = (1 + np.sqrt(q)) ** 2
+
+    # Normalized MP deviation
+    mp_dev = (lambda_1 - lambda_plus) / lambda_plus
+
+    # Average digitalization in this rolling window
+    delta_avg = delta_year.loc[rolling_years].mean()
+
+    results.append({
+        "year_end": rolling_years[-1],
+        "window_start": rolling_years[0],
+        "window_end": rolling_years[-1],
+        "delta_avg": delta_avg,
+        "lambda_1": lambda_1,
+        "lambda_plus": lambda_plus,
+        "mp_dev": mp_dev,
+        "fragility": fragility,
+        "q": q,
+        "n_banks": n_banks,
+        "T_window": T_window
+    })
+
+results_df = pd.DataFrame(results)
+
+# =========================================================
+# 4. Print the rolling table for Section 5
+# =========================================================
+print("\nRolling RMT Results")
+print(results_df[["window_start", "window_end", "delta_avg", "lambda_1", "lambda_plus", "mp_dev", "fragility"]].round(4))
+
+# =========================================================
+# 5. Figure 1: lambda_1 vs digital expansion with MP edge
+# =========================================================
+fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
+
+ax1 = axes[0]
+ax1.plot(results_df["delta_avg"], results_df["lambda_1"], marker="o", linewidth=2.2, label=r"$\lambda_1(\widehat{\Sigma}_\tau)$")
+ax1.plot(results_df["delta_avg"], results_df["lambda_plus"], linestyle="--", linewidth=2.0, label=r"MP upper edge $\lambda_{+,\tau}$ ")
+
+ax1.set_title(r"Dominant Eigenvalue vs Digital Expansion", fontsize=12)
+ax1.set_xlabel(r"Average digital expansion in rolling window ($\delta_\tau$)", fontsize=11)
+ax1.set_ylabel(r"Eigenvalue magnitude", fontsize=11)
+ax1.legend(frameon=True)
+
+# =========================================================
+# 6. Figure 2: MP deviation vs digital expansion
+# =========================================================
+ax2 = axes[1]
+ax2.plot(results_df["delta_avg"], results_df["mp_dev"], marker="o", linewidth=2.2, label=r"$\widehat{\mathcal{M}}_\tau$")
+ax2.axhline(0, linestyle="--", linewidth=1.3, label="MP crossing threshold")
+
+# Shade detached regime
+ax2.fill_between(
+    results_df["delta_avg"],
+    results_df["mp_dev"],
+    0,
+    where=(results_df["mp_dev"] > 0),
+    interpolate=True,
+    alpha=0.2,
+    label="Detached systemic mode"
+)
+
+ax2.set_title(r"Marchenko--Pastur Deviation over Digital Expansion", fontsize=12)
+ax2.set_xlabel(r"Average digital expansion in rolling window ($\delta_\tau$)", fontsize=11)
+ax2.set_ylabel(r"Normalized MP deviation $\widehat{\mathcal{M}}_\tau$", fontsize=11)
+ax2.legend(frameon=True)
+
+plt.tight_layout()
+plt.savefig("RMT_Digitalization_ROA.png", dpi=300, bbox_inches="tight")
+plt.savefig("RMT_Digitalization_ROA.pdf", dpi=300, bbox_inches="tight")
+plt.show()
+
+# =========================================================
+# 7. Optional simple quadratic fit for Section 5 discussion
+# =========================================================
+# This is descriptive, not the main structural test
+X_fit = np.column_stack([
+    np.ones(len(results_df)),
+    results_df["delta_avg"].values,
+    results_df["delta_avg"].values ** 2
+])
+y_fit = results_df["mp_dev"].values
+
+beta_hat = np.linalg.lstsq(X_fit, y_fit, rcond=None)[0]
+print("\nDescriptive quadratic fit for MP deviation:")
+print(f"mp_dev = {beta_hat[0]:.4f} + {beta_hat[1]:.4f}*delta + {beta_hat[2]:.4f}*delta^2")
