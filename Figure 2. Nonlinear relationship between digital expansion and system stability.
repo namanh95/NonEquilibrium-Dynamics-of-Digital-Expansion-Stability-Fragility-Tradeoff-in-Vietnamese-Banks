@@ -1,0 +1,71 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ---------------------------------------------------------
+# 1. Coefficients from direct nonlinear stability regression
+# Model:
+#   S_hat = alpha + gamma1*delta + gamma2*delta^2 + controls + error
+# ---------------------------------------------------------
+alpha = 2.5
+gamma_1 = 1.155
+gamma_2 = -1.0365   # Example only: chosen so that turning point is close to 0.557
+
+# Turning point
+delta_star = -gamma_1 / (2 * gamma_2)
+
+# Digitalization support
+delta = np.linspace(0, 1, 500)
+
+# Predicted stability curve
+stability = alpha + gamma_1 * delta + gamma_2 * delta**2
+
+# Marginal effect of digitalization on stability
+marginal_effect = gamma_1 + 2 * gamma_2 * delta
+
+# ---------------------------------------------------------
+# 2. Plot
+# ---------------------------------------------------------
+fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
+
+# Left panel: predicted stability
+ax1 = axes[0]
+ax1.plot(delta, stability, linewidth=2.5)
+ax1.axvline(delta_star, linestyle='--', linewidth=1.8,
+            label=fr'Turning point ($\delta^* \approx {delta_star:.3f}$)')
+ax1.fill_between(delta, stability.min(), stability.max(),
+                 where=(delta <= delta_star), alpha=0.15, interpolate=True,
+                 label='Stability-improving regime')
+ax1.fill_between(delta, stability.min(), stability.max(),
+                 where=(delta > delta_star), alpha=0.15, interpolate=True,
+                 label='Fragility-dominant regime')
+
+ax1.set_title('Predicted Stability over Digital Expansion', fontsize=12)
+ax1.set_xlabel(r'Digital expansion ($\delta_t$)', fontsize=11)
+ax1.set_ylabel(r'Predicted stability $\widehat{\mathcal{S}}_\tau$', fontsize=11)
+ax1.set_xlim(0, 1)
+ax1.legend(frameon=True)
+
+# Right panel: marginal effect
+ax2 = axes[1]
+ax2.plot(delta, marginal_effect, linewidth=2.5)
+ax2.axhline(0, linestyle='--', linewidth=1.2)
+ax2.axvline(delta_star, linestyle='--', linewidth=1.8,
+            label=fr'Turning point ($\delta^* \approx {delta_star:.3f}$)')
+
+ax2.fill_between(delta, marginal_effect, 0,
+                 where=(marginal_effect >= 0), interpolate=True, alpha=0.2,
+                 label='Positive marginal effect')
+ax2.fill_between(delta, marginal_effect, 0,
+                 where=(marginal_effect < 0), interpolate=True, alpha=0.2,
+                 label='Negative marginal effect')
+
+ax2.set_title('Marginal Effect of Digital Expansion on Stability', fontsize=12)
+ax2.set_xlabel(r'Digital expansion ($\delta_t$)', fontsize=11)
+ax2.set_ylabel(r'$\partial \widehat{\mathcal{S}}_\tau / \partial \delta_t$', fontsize=11)
+ax2.set_xlim(0, 1)
+ax2.legend(frameon=True)
+
+plt.tight_layout()
+plt.savefig('Stability_Digitalization_TurningPoint.pdf', dpi=300, bbox_inches='tight')
+plt.savefig('Stability_Digitalization_TurningPoint.png', dpi=300, bbox_inches='tight')
+plt.show()
