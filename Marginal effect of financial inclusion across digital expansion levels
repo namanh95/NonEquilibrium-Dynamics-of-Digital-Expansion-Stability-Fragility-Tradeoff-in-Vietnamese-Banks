@@ -1,0 +1,61 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ---------------------------------------------------------
+# 1. Empirical coefficients from GMM estimation
+# Model:
+#   S_hat = alpha + beta1*FI + beta2*(FI * delta) + controls + error
+# Therefore:
+#   dS_hat / dFI = beta1 + beta2*delta
+# ---------------------------------------------------------
+beta_1 = 1.155
+beta_2 = -2.073
+
+# Critical digitalization threshold where the marginal effect of FI becomes zero
+delta_star = -beta_1 / beta_2
+
+# Digitalization support
+delta = np.linspace(0, 1, 500)
+
+# Marginal effect of financial inclusion on stability
+marginal_effect = beta_1 + beta_2 * delta
+
+# ---------------------------------------------------------
+# 2. Plot
+# ---------------------------------------------------------
+fig, ax = plt.subplots(figsize=(9, 6))
+
+ax.plot(delta, marginal_effect, linewidth=2.5, label='Marginal effect of FI on stability')
+ax.axhline(0, linestyle='--', linewidth=1.2, label='Zero marginal effect')
+ax.axvline(delta_star, linestyle='--', linewidth=1.8,
+           label=fr'Critical threshold ($\delta^* \approx {delta_star:.3f}$)')
+
+# Shade positive and negative regions
+ax.fill_between(delta, marginal_effect, 0,
+                where=(marginal_effect >= 0),
+                interpolate=True, alpha=0.2, label='Stabilizing regime')
+ax.fill_between(delta, marginal_effect, 0,
+                where=(marginal_effect < 0),
+                interpolate=True, alpha=0.2, label='Destabilizing regime')
+
+# Labels
+ax.set_title('Marginal Effect of Financial Inclusion across Digital Expansion', fontsize=13)
+ax.set_xlabel(r'Digital expansion ($\delta_t$)', fontsize=11)
+ax.set_ylabel(r'$\partial \widehat{\mathcal{S}}_\tau / \partial \mathrm{FI}$', fontsize=11)
+ax.set_xlim(0, 1)
+
+# Annotation
+ax.text(
+    delta_star + 0.02,
+    np.max(marginal_effect) * 0.6,
+    fr'$\delta^* = -\beta_1/\beta_2 \approx {delta_star:.3f}$',
+    fontsize=10
+)
+
+ax.legend(frameon=True)
+plt.tight_layout()
+
+# Export
+plt.savefig('Marginal_Effect_FI_Digitalization.pdf', dpi=300, bbox_inches='tight')
+plt.savefig('Marginal_Effect_FI_Digitalization.png', dpi=300, bbox_inches='tight')
+plt.show()
